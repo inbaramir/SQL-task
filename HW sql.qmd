@@ -1,0 +1,133 @@
+---
+title: "SQL task"
+format:
+  html:
+    df-print: kable
+self-contained: true
+toc: true
+---
+
+Uploading relevant packages and load the data base
+
+```{r}
+#| warning: false
+library(DBI)
+library(dplyr)
+library(dbplyr)
+library(odbc)
+con_chocolate <- DBI::dbConnect(drv = RSQLite::SQLite(),
+dbname = "chocolate.sqlite")
+
+```
+
+# Q1
+
+1.  The client wanted to get the full name (and id), address in the US and the total amount paid by the costumer that spent the highest amount of money since 1.1.23
+
+    Explanation of query: "I" created a nested queries based on creating a new table called total_orders which combines orders and products tables (based on pid column that appears in both tables). in the nested query 2 columns were selected or created:
+
+    -   cid - taken from orders table
+
+    -   sum_total - a new column that multiply the price column from products table with the amount column from orders table (after filtering only sales that occurred after 1.1.23 and sum it based on costumer id grouping and i.e., each row contain unique costumer id and the total amount he/she spent on different chocolate bars since 1.1.23)
+
+        Afterwards, "I" combined all total_orders and customers columns based on cid column, ordered them based on descending order and chose only the first line.
+
+2.  Lets run the query
+
+```{sql, connection = con_chocolate, output.var = "mydataframe"}
+WITH total_orders AS (
+SELECT cid, SUM(Price * amount) AS sum_total
+FROM `orders`
+LEFT JOIN products USING (pid)
+WHERE (sale_date > '2023-01-01')
+GROUP BY cid
+)
+SELECT *
+FROM total_orders
+LEFT JOIN customers USING (cid)
+ORDER BY sum_total DESC
+LIMIT 1
+
+```
+
+**The answer is**
+
+```{r}
+#| echo: false
+mydataframe
+```
+
+# Q2
+
+```{sql, connection = con_chocolate, output.var = "q2"}
+WITH sta AS (SELECT srid, Name, year_joined, sum(amount) AS total_amount
+FROM salesreps
+INNER JOIN orders
+USING (srid) 
+GROUP BY srid),
+msta AS(
+SELECT srid, Name, year_joined, total_amount,AVG(total_amount) OVER 
+    (PARTITION BY year_joined) 
+ AS avg_amount
+FROM sta
+),
+
+aa as( 
+SELECT srid, sta.Name,sta.total_amount,(sta.total_amount-avg_amount) as gap
+FROM sta
+JOIN msta
+USING (srid)
+ORDER BY gap DESC
+LIMIT 1
+),
+
+bb as (
+SELECT cid, srid, sum(amount) as t_am
+FROM orders
+WHERE srid = 7 
+GROUP BY cid
+ORDER BY t_am DESC
+LIMIT 1
+),
+
+cc as (
+SELECT pid, srid, sum(amount) as p_am
+FROM orders
+WHERE srid = 7 
+GROUP BY pid
+ORDER BY p_am DESC
+LIMIT 1
+),
+
+dd as (
+SELECT aa.srid, aa.Name, aa.total_amount, bb.cid
+FROM aa
+JOIN bb
+USING (srid))
+
+SELECT dd.Name,dd.total_amount,  customers.Name AS customer_name, candy_names 
+FROM dd
+LEFT JOIN cc USING (srid)
+LEFT JOIN customers USING (cid)
+LEFT JOIN products USING (pid)
+
+```
+
+**The answer is**
+
+- *A*
+```{r}
+#| echo: false
+print(paste("The best saler is",q2[,c("Name")]))
+print(paste("She had", q2[,c("total_amount")], "sales"))
+```
+- *B*
+```{r}
+#| echo: false
+print(paste("Her top customer is",q2[,c("customer_name")]))
+```
+- *C*
+```{r}
+#| echo: false
+print(paste("Her most sold candy is",q2[,c("candy_names")]))
+```
